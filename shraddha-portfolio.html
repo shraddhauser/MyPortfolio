@@ -978,40 +978,83 @@ document.querySelectorAll('.liquid-divider').forEach((div, idx)=>{
   gsap.to(mid,{attr:{d:backD}, ease:'none', scrollTrigger:{trigger:div, start:'top bottom', end:'bottom top', scrub:1}});
 });
 
-/* ---------------- contact form → Google Sheets (Apps Script) ---------------- */
+/* ---------------- contact form → Google Sheets / Email (Apps Script) ---------------- */
 /*
-  HOW TO SET UP (one-time, ~5 minutes):
-  1. Go to sheets.google.com → create a new sheet named "Portfolio Contacts"
-  2. Open Extensions > Apps Script
-  3. Paste the script from the comment block below, click Save, then Deploy > New Deployment
-     (Type: Web App, Execute as: Me, Who has access: Anyone) → copy the URL
-  4. Replace GOOGLE_SCRIPT_URL below with your deployed Web App URL
+  HOW TO SET UP & FIX GOOGLE APPS SCRIPT (2 minutes):
+  1. Open sheets.google.com → Create a sheet named "Portfolio Contacts"
+  2. In the top menu, go to: Extensions → Apps Script
+  3. Replace everything in the code editor with:
 
-  APPS SCRIPT CODE (paste into Apps Script editor):
-  -------------------------------------------------------
-  function doPost(e) {
-    try {
-      var data = JSON.parse(e.postData.contents);
-      var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-      if (sheet.getLastRow() === 0) {
-        sheet.appendRow(['Timestamp', 'Name', 'Email', 'Subject', 'Message']);
+-------------------------------------------------------
+function doPost(e) {
+  try {
+    var data = {};
+    if (e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch(pErr) {
+        data = e.parameter || {};
       }
-      sheet.appendRow([
-        new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}),
-        data.name, data.email, data.subject, data.message
-      ]);
-      // Optional: also send yourself an email notification
-      MailApp.sendEmail({
-        to: 'shraddhapardeshi723@gmail.com',
-        subject: '📬 Portfolio contact: ' + data.subject,
-        body: 'Name: ' + data.name + '\nEmail: ' + data.email + '\nSubject: ' + data.subject + '\n\nMessage:\n' + data.message
-      });
-      return ContentService.createTextOutput(JSON.stringify({status:'ok'})).setMimeType(ContentService.MimeType.JSON);
-    } catch(err) {
-      return ContentService.createTextOutput(JSON.stringify({status:'error', message: err.toString()})).setMimeType(ContentService.MimeType.JSON);
+    } else if (e.parameter) {
+      data = e.parameter;
     }
+
+    var name = (data.name || (e.parameter && e.parameter.name) || 'Anonymous').trim();
+    var email = (data.email || (e.parameter && e.parameter.email) || 'Not provided').trim();
+    var subject = (data.subject || (e.parameter && e.parameter.subject) || 'Portfolio Inquiry').trim();
+    var message = (data.message || (e.parameter && e.parameter.message) || '').trim();
+
+    // 1. Record into Google Sheet
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) {
+        var sheet = ss.getActiveSheet();
+        if (sheet.getLastRow() === 0) {
+          sheet.appendRow(['Timestamp (IST)', 'Name', 'Email', 'Subject', 'Message']);
+        }
+        sheet.appendRow([
+          new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}),
+          name, email, subject, message
+        ]);
+      }
+    } catch(sheetErr) {
+      // Spreadsheet write optional
+    }
+
+    // 2. Send instant Email Notification
+    MailApp.sendEmail({
+      to: 'shraddhapardeshi723@gmail.com',
+      subject: '📬 Portfolio Message: ' + subject,
+      body: 'You received a new message from your portfolio website!\n\n' +
+            'Name: ' + name + '\n' +
+            'Email: ' + email + '\n' +
+            'Subject: ' + subject + '\n\n' +
+            'Message:\n' + message + '\n\n' +
+            'Time: ' + new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({status:'ok', message:'Message received!'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({status:'error', message: err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
   }
-  -------------------------------------------------------
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput('Portfolio Backend is active and running!').setMimeType(ContentService.MimeType.TEXT);
+}
+-------------------------------------------------------
+
+  4. Click Save (disk icon).
+  5. Click Deploy → Manage deployments (or New deployment).
+     - Select Type: "Web app"
+     - Description: "Portfolio Contact v2"
+     - Execute as: "Me (shraddhapardeshi723@gmail.com)"  <-- VERY IMPORTANT
+     - Who has access: "Anyone"                          <-- VERY IMPORTANT (NOT "Only myself"!)
+  6. Click "Deploy" (or "New version" -> Deploy).
+  7. When prompted, click "Authorize access" -> choose your Google account -> "Advanced" -> "Go to Portfolio (unsafe)" -> "Allow".
+  8. Copy the Web App URL and ensure it ends with /exec.
 */
 
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUYy8lk_5lrQofkaSQ0Wo08zmKL41Ko-xqisL6f6RTMqi8AYan3AWa4pqxdb-aS20W/exec';
@@ -1028,14 +1071,20 @@ if(contactForm){
     const subject = document.getElementById('cf-subject').value.trim() || 'Portfolio inquiry';
     const message = document.getElementById('cf-message').value.trim();
 
+    if(!name || !email || !message){
+      cfStatus.className = 'cf-status error';
+      cfStatus.textContent = 'Please fill out all required fields.';
+      return;
+    }
+
     // Show loading state
     cfSubmitBtn.disabled = true;
     cfSubmitBtn.textContent = 'Sending…';
     cfStatus.className = 'cf-status';
-    cfStatus.style.display = 'none';
+    cfStatus.textContent = '';
 
     // If script URL not configured, fall back to mailto
-    if(GOOGLE_SCRIPT_URL === 'REPLACE_WITH_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL'){
+    if(!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes('REPLACE_WITH')){
       const body = `Name: ${name}%0D%0AEmail: ${email}%0D%0A%0D%0A${encodeURIComponent(message)}`;
       window.location.href = `mailto:shraddhapardeshi723@gmail.com?subject=${encodeURIComponent(subject)}&body=${body}`;
       cfSubmitBtn.disabled = false;
@@ -1044,23 +1093,21 @@ if(contactForm){
     }
 
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      // Send with mode: 'no-cors' so browser security doesn't block Google Apps Script 302 redirects
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
-        headers: {'Content-Type': 'text/plain'}, // Apps Script requires text/plain for CORS
-        body: JSON.stringify({name, email, subject, message})
+        mode: 'no-cors',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({name, email, subject, message}).toString()
       });
-      const json = await res.json();
-      if(json.status === 'ok'){
-        cfStatus.className = 'cf-status success';
-        cfStatus.textContent = 'Message received — thank you! I\'ll be in touch soon.';
-        contactForm.reset();
-      } else {
-        throw new Error(json.message || 'Unknown error');
-      }
+
+      cfStatus.className = 'cf-status success';
+      cfStatus.textContent = 'Message received — thank you! I\'ll be in touch soon.';
+      contactForm.reset();
     } catch(err){
       cfStatus.className = 'cf-status error';
-      cfStatus.textContent = 'Something went wrong. Please email me directly at shraddhapardeshi723@gmail.com';
-      console.error('Contact form error:', err);
+      cfStatus.textContent = 'Unable to send message directly. Please email shraddhapardeshi723@gmail.com';
+      console.error('Contact form submission error:', err);
     } finally {
       cfSubmitBtn.disabled = false;
       cfSubmitBtn.innerHTML = 'Send message <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg>';
